@@ -5,7 +5,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.4.0</version>
+    <version>3.5.12</version>
     <relativePath></relativePath>
   </parent>
 
@@ -459,4 +459,35 @@
       </build>
     </profile>
   </profiles>
+
+  <!-- assertj-core (3.27.7), jackson-databind (2.19.4) and spring-boot-starter-actuator
+       (3.5.12, along with its spring-boot-actuator/-autoconfigure jars) are already at or
+       above the versions required to remediate the tracked CVEs via the spring-boot-starter-parent
+       3.5.12 BOM above. Only thymeleaf and postgresql still need an explicit bump beyond what
+       that BOM manages. -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.thymeleaf</groupId>
+        <artifactId>thymeleaf</artifactId>
+        <version>3.1.5.RELEASE</version>
+      </dependency>
+      <dependency>
+        <groupId>org.thymeleaf</groupId>
+        <artifactId>thymeleaf-spring6</artifactId>
+        <version>3.1.5.RELEASE</version>
+      </dependency>
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>42.7.12</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>2.18.8</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
 </project>
