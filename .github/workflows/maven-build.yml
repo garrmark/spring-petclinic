@@ -82,20 +82,27 @@ jobs:
 
       - name: Send Lineai Build Info
         if: always()
+        shell: bash
         env:
+          LINEAI_HOST: ${{ vars.LINEAI_HOST }}
+          AGENT_UUID: ${{ vars.AGENT_UUID }}
+          AGENT_PASSWORD: ${{ secrets.AGENT_PASSWORD }}
           CURL_CA_BUNDLE: ${{ env.LAB_CA_BUNDLE }}
           SSL_CERT_FILE: ${{ env.LAB_CA_BUNDLE }}
-        uses: lineai-intelligence/lineai-send-build-info-github-action@v1.0.3
-        with:
-          lineai_host: ${{ vars.LINEAI_HOST }}
-          agent_uuid: ${{ vars.AGENT_UUID }}
-          agent_password: ${{ secrets.AGENT_PASSWORD }}
-          scan_path: /github/workspace
-          job_name: ${{ github.workflow }}
-          build_number: ${{ github.run_number }}
-          build_status: ${{ job.status }}
-          pipeline_system: GitHub Actions
-          log_file: /github/workspace/build.log
+        run: |
+          docker run --pull always --rm --network host \
+            --env LINEAI_HOST --env AGENT_UUID --env AGENT_PASSWORD \
+            --env CURL_CA_BUNDLE --env SSL_CERT_FILE \
+            --volume "${{ github.workspace }}:/github/workspace" \
+            --volume "${{ env.LAB_CA_BUNDLE }}:${{ env.LAB_CA_BUNDLE }}:ro" \
+            lineaipublic.azurecr.io/lineai_send-build-info:latest \
+            send_build_info \
+              --path=/github/workspace \
+              --pipeline-system="GitHub Actions" \
+              --job-name="${{ github.workflow }}" \
+              --build-number="${{ github.run_number }}" \
+              --build-status="${{ job.status }}" \
+              --log-file=/github/workspace/build.log
 
       - name: Lineai Java source scan
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/lineai-baseline'
@@ -105,7 +112,7 @@ jobs:
           AGENT_PASSWORD: ${{ secrets.AGENT_PASSWORD }}
           JAVA_METHOD_FILTER: "org.springframework.samples."
         run: |
-          docker run --pull always --rm \
+          docker run --pull always --rm --network host \
             --env LINEAI_HOST --env AGENT_UUID --env AGENT_PASSWORD --env JAVA_METHOD_FILTER \
             --env SCAN_PATH_FILTER=java --env SCAN_PATH_DEPTH=-1 \
             --env JAVA_TOOL_OPTIONS="-Djavax.net.ssl.trustStore=/lab-truststore.jks -Djavax.net.ssl.trustStorePassword=changeit" \
