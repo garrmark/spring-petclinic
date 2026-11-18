@@ -14,7 +14,7 @@ on:
 jobs:
   build:
 
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     strategy:
       matrix:
         java: [ '17' ]
@@ -35,6 +35,41 @@ jobs:
           set -o pipefail
           ./mvnw -B verify 2>&1 | tee "${{ github.workspace }}/build.log"
 
+
+      # Lab-only (prodsim-tng Recipe A): self-hosted runner + private CA bundle
+      - name: Prep lab CA bundle
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE="${{ runner.temp }}/lab-ca-bundle.pem"
+          HOST_CA=/usr/local/share/ca-certificates/prodsim-tng-local-ca.crt
+          : > "$BUNDLE"
+          if [[ -f "$HOST_CA" ]]; then
+            cat "$HOST_CA" >> "$BUNDLE"
+          fi
+          HOST="tng.127.0.0.1.nip.io"
+          openssl s_client -showcerts -connect "${HOST}:443" -servername "$HOST" </dev/null 2>/dev/null             | awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' >> "$BUNDLE" || true
+          if ! grep -q "BEGIN CERTIFICATE" "$BUNDLE"; then
+            curl -sf http://127.0.0.1:9090/api/ca.pem >> "$BUNDLE" || true
+          fi
+          # Assert a self-signed root is present
+          python3 - <<'PY2'
+          import re,sys
+          from pathlib import Path
+          pem=Path(r"""${{ runner.temp }}/lab-ca-bundle.pem""").read_text()
+          certs=re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", pem, re.S)
+          if not certs:
+            sys.exit("lab CA bundle empty")
+          print(f"lab CA bundle has {len(certs)} cert(s)")
+          PY2
+          echo "LAB_CA_BUNDLE=$BUNDLE" >> "$GITHUB_ENV"
+          # JVM truststore for the java scanner container mount path below
+          TS="${{ runner.temp }}/lab-truststore.jks"
+          rm -f "$TS"
+          keytool -importcert -noprompt -alias labca -file "$HOST_CA" -keystore "$TS" -storepass changeit 2>/dev/null             || keytool -importcert -noprompt -alias labca -file <(openssl x509 -in "$BUNDLE") -keystore "$TS" -storepass changeit
+          echo "LAB_TRUSTSTORE=$TS" >> "$GITHUB_ENV"
+
       - name: Ensure Lineai build.log exists
         if: always()
         shell: bash
@@ -47,6 +82,9 @@ jobs:
 
       - name: Send Lineai Build Info
         if: always()
+        env:
+          CURL_CA_BUNDLE: ${{ env.LAB_CA_BUNDLE }}
+          SSL_CERT_FILE: ${{ env.LAB_CA_BUNDLE }}
         uses: lineai-intelligence/lineai-send-build-info-github-action@v1.0.3
         with:
           lineai_host: ${{ vars.LINEAI_HOST }}
@@ -70,7 +108,9 @@ jobs:
           docker run --pull always --rm \
             --env LINEAI_HOST --env AGENT_UUID --env AGENT_PASSWORD --env JAVA_METHOD_FILTER \
             --env SCAN_PATH_FILTER=java --env SCAN_PATH_DEPTH=-1 \
+            --env JAVA_TOOL_OPTIONS="-Djavax.net.ssl.trustStore=/lab-truststore.jks -Djavax.net.ssl.trustStorePassword=changeit" \
             --volume "${{ github.workspace }}:/scan" \
+            --volume "${{ env.LAB_TRUSTSTORE }}:/lab-truststore.jks:ro" \
             --entrypoint /bin/bash \
             lineaipublic.azurecr.io/lineai_source_java:latest \
             -c 'set -euo pipefail
